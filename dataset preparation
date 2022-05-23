@@ -142,3 +142,13 @@ def sort_rfq_error():
             print(f'{f} moved to {pr}')
         except Exception as e:
             print(f'{dest} failed')
+
+
+def main():
+    sort_ad()
+    sort_sec()
+    sort_rfq()
+
+
+if __name__ == "__main__":
+    main()
