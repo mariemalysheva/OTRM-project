@@ -1,0 +1,144 @@
+import shutil as sh
+import os
+import pandas as pd
+from PyPDF2 import PdfFileReader, PdfFileWriter
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
+from pdfminer.pdfpage import PDFPage
+from pdfminer.pdfinterp import resolve1
+
+cwd = "D:\\OTRM Datasets\\"
+training_dir = cwd + "for training\\"
+
+
+def pgs_miner(path):
+    try:
+        file = open(path, 'rb')
+        parser = PDFParser(file)
+        doc = PDFDocument(parser)
+        parser.set_document(doc)
+        pages = resolve1(doc.catalog['Pages'])
+        return pages.get('Count', 0)
+
+    except Exception as e:
+        print(f"can't open file: {path}")
+        return 0
+
+
+def sort_ad():
+    acdocs = cwd + '1 - Accounting docs\\'
+    ad = training_dir + 'ad\\'
+
+    for dir in os.listdir(acdocs):
+        if os.path.isdir(acdocs + dir):
+            for subdir in os.listdir(acdocs + dir):
+                if os.path.isdir(acdocs + dir + f'\\{subdir}'):
+                    for f in os.listdir(acdocs + dir + f'\\{subdir}'):
+                        if os.path.isfile(acdocs + dir + f'\\{subdir}\\{f}'):
+                            source = acdocs + dir + f'\\{subdir}\\{f}'
+                            dest = ad + dir + f'\\first\\{f}'
+                            if f.lower().endswith(('.jpg', '.jpeg')):
+                                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                sh.copy(source, dest)
+                            elif f.lower().endswith('.pdf'):
+                                pc = pgs_miner(source)
+                                if pc == 0:
+                                    os.makedirs(os.path.join(ad, 'error'), exist_ok=True)
+                                    sh.copy(source, os.path.join(ad, 'error', os.path.basename(dest)))
+                                elif pc == 1:
+                                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                    sh.copy(source, dest)
+                                else:
+                                    dest = ad + dir + f'\\multi\\{f}'
+                                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                    sh.copy(source, dest)
+
+
+def get_table(path, sheet):
+    df = pd.read_excel(path, header=0, index_col=0, sheet_name=sheet, dtype=str)
+    print(df.head(5))
+    return df
+
+
+def extr_pages(source,dest, row):
+    pg = row.split('-')[-1]
+
+    if pg == 'ALL':
+        sh.copy(source, dest)
+    else:
+        try:
+            reader = PdfFileReader(open(source, 'rb'))
+            writer = PdfFileWriter()
+            writer.addPage(reader.getPage(int(pg) - 1))
+            writer.write(open(dest, 'wb'))
+            print(f"{dest} added")
+        except Exception as e:
+            sh.copy(source, training_dir + f'sec\\error\\{row}.pdf')
+            print(f"can't read {source}")
+
+
+
+
+
+def sort_sec():
+    sec = training_dir + "sec\\"
+    df = get_table(cwd + '2 - Security prospectus\\covenants_corrected.xlsx', 'DATA')
+
+    for dir in df.columns:
+        col_dir = sec + dir
+        if dir == 'Обозначение прав дочерних компаний (restricted / unrestricted)':
+            col_dir = sec + 'Обозначение прав дочерних компаний'
+        os.makedirs(col_dir, exist_ok=True)
+
+        for row in df.index:
+            if df.at[row, dir] == '1':
+                f = row.split('-')[0]
+
+                source = cwd + f'2 - Security prospectus\\Documents\\{f}.pdf'
+                dest = col_dir + f'\\{row}.pdf'
+
+                extr_pages(source, dest, row)
+
+
+
+
+def sort_rfq():
+    rfq = training_dir + 'rfq\\'
+    df = get_table(cwd + '3 - RFQ Emails\\AIR-EXCEL-UPD2\\RFQ с файлами.xlsx', 'Customer')
+    edocs = cwd + '3 - RFQ Emails\\AIR-MAIL-5\\'
+
+    for pr in ['CRITICAL', 'AOG', 'Routine']:
+        os.makedirs(rfq + pr, exist_ok=True)
+
+    for f in os.listdir(edocs):
+        num = f.split('.')[0]
+        if num in df.index:
+            pr = df.at[num, 'Priority']
+            source = edocs + f
+            dest = rfq + pr + f'\\{f}'
+            try:
+                sh.copy(source, dest)
+                print(f'{f} copied to {pr}')
+            except Exception as e:
+                print(f'{dest} failed')
+                os.makedirs(rfq+'error', exist_ok=True)
+                sh.copy(source, rfq+'error\\'+f)
+        else:
+            print(f'{f} not found')
+            
+
+
+def sort_rfq_error():
+    rfq = training_dir + 'rfq\\'
+    df = get_table(cwd + '3 - RFQ Emails\\AIR-EXCEL-UPD2\\RFQ с файлами.xlsx', 'Customer')
+    edocs = training_dir + 'rfq\\error\\'
+    for f in os.listdir(edocs):
+        num = f.split('.')[0]
+        pr = df.at[num, 'Priority'].unique()[0]
+        source = edocs + f
+        dest = rfq + pr + f'\\{f}'
+        try:
+            sh.move(source, dest)
+            print(f'{f} moved to {pr}')
+        except Exception as e:
+            print(f'{dest} failed')
